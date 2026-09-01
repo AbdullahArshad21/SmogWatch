@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+requests
+python-dotenv
+pandas
+apscheduler
+lightgbm
+scikit-learn
+numpy

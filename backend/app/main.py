@@ -5,9 +5,17 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from fetch_data import run_fetch_cycle
 
 app = FastAPI(title="SmogWatch API")
-
+scheduler = BackgroundScheduler()
+scheduler.add_job(run_fetch_cycle, "interval", hours=1, id="fetch_air_quality")
+scheduler.start()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
