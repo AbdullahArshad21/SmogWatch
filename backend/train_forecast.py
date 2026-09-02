@@ -1,7 +1,7 @@
 import sqlite3
 import pandas as pd
 import numpy as np
-import lightgbm as lgb
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import pickle
@@ -96,12 +96,11 @@ def train_model():
 
     print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
 
-    model = lgb.LGBMRegressor(
+    model = GradientBoostingRegressor(
         n_estimators=200,
         learning_rate=0.05,
         max_depth=6,
         random_state=42,
-        verbose=-1,
     )
 
     model.fit(X_train, y_train)
