@@ -16,6 +16,7 @@ app = FastAPI(title="SmogWatch API")
 scheduler = BackgroundScheduler()
 scheduler.add_job(run_fetch_cycle, "interval", hours=1, id="fetch_air_quality")
 scheduler.start()
+run_fetch_cycle()  # fetch immediately on startup too, don't wait a full hour
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
