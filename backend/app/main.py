@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import sqlite3
 import pickle
 from datetime import datetime, timezone
@@ -5,18 +9,14 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from fetch_data import run_fetch_cycle
+# Ensure the database and its tables exist BEFORE anything else tries to
+# use them - this must run first, before the scheduler or any fetch.
+from fetch_data import init_db, run_fetch_cycle
+init_db()
 
 app = FastAPI(title="SmogWatch API")
-scheduler = BackgroundScheduler()
-scheduler.add_job(run_fetch_cycle, "interval", hours=1, id="fetch_air_quality")
-scheduler.start()
-run_fetch_cycle()  # fetch immediately on startup too, don't wait a full hour
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,13 +30,11 @@ HORIZON_HOURS = 6
 with open("forecast_model.pkl", "rb") as f:
     model = pickle.load(f)
 
-from fetch_data import init_db
-init_db()
-
-def get_aqi_label(aqi: int) -> str:
-    labels = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
-    return labels.get(aqi, "Unknown")
-
+from apscheduler.schedulers.background import BackgroundScheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(run_fetch_cycle, "interval", hours=1, id="fetch_air_quality")
+scheduler.start()
+run_fetch_cycle()  # fetch immediately on startup too, don't wait a full hour
 
 @app.get("/")
 def read_root():
