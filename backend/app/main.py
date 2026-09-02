@@ -36,6 +36,10 @@ scheduler.add_job(run_fetch_cycle, "interval", hours=1, id="fetch_air_quality")
 scheduler.start()
 run_fetch_cycle()  # fetch immediately on startup too, don't wait a full hour
 
+def get_aqi_label(aqi: int) -> str:
+    labels = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
+    return labels.get(aqi, "Unknown")
+
 @app.get("/")
 def read_root():
     return {"status": "SmogWatch API is running"}
