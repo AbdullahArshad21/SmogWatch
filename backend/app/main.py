@@ -29,6 +29,8 @@ HORIZON_HOURS = 6
 with open("forecast_model.pkl", "rb") as f:
     model = pickle.load(f)
 
+from fetch_data import init_db
+init_db()
 
 def get_aqi_label(aqi: int) -> str:
     labels = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
