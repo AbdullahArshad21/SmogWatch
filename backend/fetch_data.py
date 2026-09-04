@@ -1,28 +1,32 @@
 import os
-import sqlite3
 import time
 from datetime import datetime, timezone
 import requests
+import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
 LAT = 31.5497
 LON = 74.3436
-DB_PATH = "smogwatch.db"
 
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
 
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
+
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS air_quality_readings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMPTZ NOT NULL,
             aqi INTEGER,
             pm2_5 REAL,
             pm10 REAL,
@@ -30,31 +34,47 @@ def init_db():
             so2 REAL,
             co REAL,
             o3 REAL,
+            temp REAL,
+            humidity REAL,
+            wind_speed REAL,
             fetch_status TEXT DEFAULT 'ok'
         )
     """)
-    # A small log table so we can see if the job silently stopped running
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS fetch_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMPTZ NOT NULL,
             success INTEGER NOT NULL,
             error_message TEXT
         )
     """)
     conn.commit()
+    cursor.close()
     conn.close()
 
 
 def is_reading_valid(components: dict) -> bool:
-    """Basic sanity checks - real air quality values should never be
-    negative or absurdly high. This catches corrupted/garbage API
-    responses before they pollute our dataset.
-    """
     for key, value in components.items():
         if value is None or value < 0 or value > 5000:
             return False
     return True
+
+
+def fetch_current_weather() -> dict | None:
+    url = f"http://api.openweathermap.org/data/2.5/weather?lat={LAT}&lon={LON}&appid={API_KEY}&units=metric"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return {
+            "temp": data["main"]["temp"],
+            "humidity": data["main"]["humidity"],
+            "wind_speed": data["wind"]["speed"],
+        }
+    except requests.exceptions.RequestException as e:
+        print(f"Weather fetch failed: {e}")
+        return None
+
 
 def fetch_current_air_quality() -> dict | None:
     url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={LAT}&lon={LON}&appid={API_KEY}"
@@ -74,7 +94,7 @@ def fetch_current_air_quality() -> dict | None:
             weather = fetch_current_weather() or {"temp": None, "humidity": None, "wind_speed": None}
 
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(timezone.utc),
                 "aqi": reading["main"]["aqi"],
                 "pm2_5": components["pm2_5"],
                 "pm10": components["pm10"],
@@ -95,57 +115,39 @@ def fetch_current_air_quality() -> dict | None:
                 log_fetch_result(success=False, error_message=str(e))
                 return None
 
-def fetch_current_weather() -> dict | None:
-    """Fetch current weather conditions - wind speed and humidity are
-    known to significantly affect how pollution disperses.
-    """
-    url = f"http://api.openweathermap.org/data/2.5/weather?lat={LAT}&lon={LON}&appid={API_KEY}&units=metric"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return {
-            "temp": data["main"]["temp"],
-            "humidity": data["main"]["humidity"],
-            "wind_speed": data["wind"]["speed"],
-        }
-    except requests.exceptions.RequestException as e:
-        print(f"Weather fetch failed: {e}")
-        return None
-
 
 def save_reading(reading: dict):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO air_quality_readings
-        (timestamp, aqi, pm2_5, pm10, no2, so2, co, o3)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (timestamp, aqi, pm2_5, pm10, no2, so2, co, o3, temp, humidity, wind_speed)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         reading["timestamp"], reading["aqi"], reading["pm2_5"],
         reading["pm10"], reading["no2"], reading["so2"],
-        reading["co"], reading["o3"],
+        reading["co"], reading["o3"], reading["temp"],
+        reading["humidity"], reading["wind_speed"],
     ))
     conn.commit()
+    cursor.close()
     conn.close()
     log_fetch_result(success=True)
 
 
 def log_fetch_result(success: bool, error_message: str = None):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO fetch_log (timestamp, success, error_message)
-        VALUES (?, ?, ?)
-    """, (datetime.now(timezone.utc).isoformat(), int(success), error_message))
+        VALUES (%s, %s, %s)
+    """, (datetime.now(timezone.utc), int(success), error_message))
     conn.commit()
+    cursor.close()
     conn.close()
 
 
 def run_fetch_cycle():
-    """One full fetch-and-store cycle - this is what the scheduler will
-    call repeatedly.
-    """
     reading = fetch_current_air_quality()
     if reading:
         save_reading(reading)

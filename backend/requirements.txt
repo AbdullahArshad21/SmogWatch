@@ -6,3 +6,4 @@ pandas
 apscheduler
 scikit-learn
 numpy
+psycopg2-binary

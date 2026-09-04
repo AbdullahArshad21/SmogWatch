@@ -2,16 +2,15 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import sqlite3
 import pickle
 from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
+import psycopg2
+import psycopg2.extras
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-# Ensure the database and its tables exist BEFORE anything else tries to
-# use them - this must run first, before the scheduler or any fetch.
 from fetch_data import init_db, run_fetch_cycle
 init_db()
 
@@ -24,8 +23,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_PATH = "smogwatch.db"
+DATABASE_URL = os.getenv("DATABASE_URL")
 HORIZON_HOURS = 6
+
+
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
+
 
 with open("forecast_model.pkl", "rb") as f:
     model = pickle.load(f)
@@ -34,11 +38,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 scheduler = BackgroundScheduler()
 scheduler.add_job(run_fetch_cycle, "interval", hours=1, id="fetch_air_quality")
 scheduler.start()
-run_fetch_cycle()  # fetch immediately on startup too, don't wait a full hour
+run_fetch_cycle()
+
 
 def get_aqi_label(aqi: int) -> str:
     labels = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
     return labels.get(aqi, "Unknown")
+
 
 @app.get("/")
 def read_root():
@@ -47,12 +53,13 @@ def read_root():
 
 @app.get("/current")
 def get_current():
-    """Latest recorded reading."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
+    conn = get_connection()
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cursor.execute(
         "SELECT * FROM air_quality_readings ORDER BY timestamp DESC LIMIT 1"
-    ).fetchone()
+    )
+    row = cursor.fetchone()
+    cursor.close()
     conn.close()
 
     if not row:
@@ -60,30 +67,33 @@ def get_current():
 
     data = dict(row)
     data["aqi_label"] = get_aqi_label(data["aqi"])
+    data["timestamp"] = data["timestamp"].isoformat()
     return data
 
 
 @app.get("/history")
 def get_history(hours: int = 48):
-    """Recent readings for charting, default last 48 hours."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
+    conn = get_connection()
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cursor.execute(
         "SELECT timestamp, aqi, pm2_5, pm10 FROM air_quality_readings "
-        "ORDER BY timestamp DESC LIMIT ?",
+        "ORDER BY timestamp DESC LIMIT %s",
         (hours,),
-    ).fetchall()
+    )
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
 
     readings = [dict(r) for r in rows]
-    readings.reverse()  # chronological order for charting
+    for r in readings:
+        r["timestamp"] = r["timestamp"].isoformat()
+    readings.reverse()
     return {"readings": readings}
 
 
 @app.get("/forecast")
 def get_forecast():
-    """Predict PM2.5 HORIZON_HOURS from now, using the most recent data."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection()
     df = pd.read_sql(
         "SELECT * FROM air_quality_readings ORDER BY timestamp DESC LIMIT 25",
         conn,
@@ -96,8 +106,8 @@ def get_forecast():
             detail="Not enough historical data yet to generate a forecast.",
         )
 
-    df = df.iloc[::-1].reset_index(drop=True)  # back to chronological order
-    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed")
+    df = df.iloc[::-1].reset_index(drop=True)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
 
     latest = df.iloc[-1]
 

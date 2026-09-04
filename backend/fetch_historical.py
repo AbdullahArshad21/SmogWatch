@@ -1,24 +1,29 @@
 import os
-import sqlite3
 from datetime import datetime, timezone, timedelta
 import requests
 import time
+import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
 LAT = 31.5497
 LON = 74.3436
-DB_PATH = "smogwatch.db"
+
+
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
+
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS air_quality_readings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMPTZ NOT NULL,
             aqi INTEGER,
             pm2_5 REAL,
             pm10 REAL,
@@ -32,22 +37,12 @@ def init_db():
             fetch_status TEXT DEFAULT 'ok'
         )
     """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS fetch_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            success INTEGER NOT NULL,
-            error_message TEXT
-        )
-    """)
     conn.commit()
+    cursor.close()
     conn.close()
 
+
 def fetch_historical_chunk(start_ts: int, end_ts: int) -> list:
-    """Fetch historical readings between two Unix timestamps.
-    OpenWeatherMap's history endpoint returns hourly readings for the
-    requested range in one call.
-    """
     url = (
         f"http://api.openweathermap.org/data/2.5/air_pollution/history"
         f"?lat={LAT}&lon={LON}&start={start_ts}&end={end_ts}&appid={API_KEY}"
@@ -58,24 +53,25 @@ def fetch_historical_chunk(start_ts: int, end_ts: int) -> list:
 
 
 def save_readings(readings: list):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection()
     cursor = conn.cursor()
     saved_count = 0
 
     for r in readings:
-        timestamp = datetime.fromtimestamp(r["dt"], tz=timezone.utc).isoformat()
+        timestamp = datetime.fromtimestamp(r["dt"], tz=timezone.utc)
         components = r["components"]
 
-        existing = cursor.execute(
-            "SELECT id FROM air_quality_readings WHERE timestamp = ?", (timestamp,)
-        ).fetchone()
+        cursor.execute(
+            "SELECT id FROM air_quality_readings WHERE timestamp = %s", (timestamp,)
+        )
+        existing = cursor.fetchone()
         if existing:
             continue
 
         cursor.execute("""
             INSERT INTO air_quality_readings
             (timestamp, aqi, pm2_5, pm10, no2, so2, co, o3, temp, humidity, wind_speed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL, NULL, NULL)
         """, (
             timestamp, r["main"]["aqi"], components["pm2_5"], components["pm10"],
             components["no2"], components["so2"], components["co"], components["o3"],
@@ -83,14 +79,12 @@ def save_readings(readings: list):
         saved_count += 1
 
     conn.commit()
+    cursor.close()
     conn.close()
     return saved_count
 
 
 def backfill_historical_data(days_back: int = 90):
-    """Pull the last N days of historical data, in weekly chunks (API
-    has practical limits on range size per call, so we chunk it).
-    """
     init_db()
 
     end_time = datetime.now(timezone.utc)
@@ -116,7 +110,7 @@ def backfill_historical_data(days_back: int = 90):
             print(f"  -> Failed: {e}")
 
         current = chunk_end
-        time.sleep(1)  # be polite to the API, avoid hammering it
+        time.sleep(1)
 
     print(f"\nBackfill complete. Total new readings saved: {total_saved}")
 
