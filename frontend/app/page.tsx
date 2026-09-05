@@ -11,7 +11,10 @@ export default function Home() {
           Live air quality monitoring and forecasting for Lahore
         </p>
       </div>
-
+        <div className="flex gap-4 mt-3 text-sm">
+          <a href="/guidance" style={{ color: "var(--aqi-fair)" }}>Guidance by Audience</a>
+          <a href="/about" style={{ color: "var(--aqi-fair)" }}>About This Data</a>
+        </div>
       <div className="space-y-6">
         <CurrentConditions />
         <div className="grid md:grid-cols-2 gap-6">
