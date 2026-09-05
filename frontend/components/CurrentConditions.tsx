@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { getAqiInfo } from "./aqi";
@@ -43,10 +43,11 @@ export default function CurrentConditions() {
     hour: "2-digit",
     minute: "2-digit",
   });
+  const whoTimes = info.whoMultiplier(data.pm2_5).toFixed(1);
 
   return (
     <div className="panel rounded-2xl p-8">
-      <div className="flex items-center justify-between flex-wrap gap-6">
+      <div className="flex items-center justify-between flex-wrap gap-6 mb-6">
         <div>
           <p className="text-xs uppercase tracking-wide mb-1" style={{ color: "var(--text-muted)" }}>
             Lahore, Pakistan - Updated {updatedAt}
@@ -83,6 +84,36 @@ export default function CurrentConditions() {
               <p className="font-mono font-semibold">{p.value?.toFixed(1)}</p>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div
+        className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3"
+        style={{ backgroundColor: "var(--panel-light)" }}
+      >
+        <span className="text-2xl font-bold font-mono" style={{ color: info.color }}>
+          {whoTimes}&times;
+        </span>
+        <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+          the WHO 24-hour PM2.5 guideline (15 &micro;g/m&sup3;)
+        </span>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="rounded-xl p-4" style={{ backgroundColor: "var(--panel-light)" }}>
+          <p className="text-xs uppercase tracking-wide font-semibold mb-1" style={{ color: "var(--text-muted)" }}>
+            General Public
+          </p>
+          <p className="text-sm">{info.generalPublic}</p>
+        </div>
+        <div
+          className="rounded-xl p-4 border-l-2"
+          style={{ backgroundColor: "var(--panel-light)", borderColor: info.color }}
+        >
+          <p className="text-xs uppercase tracking-wide font-semibold mb-1" style={{ color: info.color }}>
+            Sensitive Groups (children, elderly, respiratory conditions)
+          </p>
+          <p className="text-sm">{info.sensitiveGroups}</p>
         </div>
       </div>
     </div>
