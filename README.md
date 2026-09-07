@@ -29,7 +29,7 @@ The live data pipeline keeps running and collecting real data through Lahore's s
 Actively collecting data. Frontend dashboard and deployment in progress.
 ## Architecture note: SQLite → PostgreSQL migration
 
-The pipeline originally used SQLite for local storage. After deploying to a serverless host, readings were mysteriously resetting to a single row on every visit. 
+The pipeline originally used SQLite for local storage. After deploying to a serverless host, readings were mysteriously resetting to a single row on every visit to this.
 
 **Root cause:** serverless/container platforms don't guarantee persistent local disk storage — each cold start can spin up a fresh container with a blank filesystem, wiping the SQLite file.
 
