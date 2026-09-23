@@ -6,7 +6,7 @@ Live air quality monitoring and forecasting for Lahore, Pakistan.
 
 Lahore is consistently ranked among the most polluted cities in the world, especially during smog season (Oct-Feb). This project collects real air quality data hourly and forecasts PM2.5 levels 6 hours ahead, so people can plan around worsening conditions before they happen.
 
-## How it works
+## How it works as based 
 
 - A scheduled background job fetches live air quality + weather data from OpenWeatherMap every hour
 - A LightGBM model, trained on real historical readings, forecasts PM2.5 levels 6 hours ahead
